@@ -1,111 +1,66 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"math/rand"
-	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
-
-	"worker-pool/internal/http"
 )
 
-type TaskParams struct {
-	c  chan int
-	wc int
+type Semaphore interface {
 }
 
-type Response struct {
-	Comments *[]Comment
+type GlobalSem struct {
+	maxTh        int32
+	maxThPerT    int32
+	maxThRunning int32
+	wg           sync.WaitGroup
 }
 
-type Comment struct {
-	Id   int    `json:"id"`
-	Body string `json:"body"`
+type TaskSem struct {
+	running int32
 }
 
 func main() {
-
 	var T, N, M int
 	flag.IntVar(&T, "T", 3, "number of tasks")
 	flag.IntVar(&N, "N", 10, "number of threads")
 	flag.IntVar(&M, "M", 4, "max threads per task")
 	flag.Parse()
 
-	//считаем сколько мы можем запустить воркеров для каждой залачи
-	//с учетом максимального количества потоков
-	wc := 0
-	var taskInfo = make([]TaskParams, 0, T)
-	for i := 0; i < T; i++ {
-		ch := make(chan int, 1000)
-
-		wt := 0
-		if wc+M <= N {
-			wc += M
-			wt = M
-		} else {
-			wt = N - wc
-			wc += wt
-		}
-
-		tp := TaskParams{ch, wt}
-		taskInfo = append(taskInfo, tp)
+	gSem := GlobalSem{
+		int32(N),
+		int32(M),
+		0,
+		sync.WaitGroup{},
 	}
 
-	wg := sync.WaitGroup{}
-	for t, info := range taskInfo {
-		t := t
-
-		//заполняем для каждой задачи свой канал рандомными данными
-		wg.Add(1)
-		go func(ch chan<- int) {
-			defer wg.Done()
-			for i := 0; i < 15; i++ {
-				ch <- rand.Intn(300) + 1
+	for i := 0; i < T; i++ { //запускаем T задач
+		tSem := TaskSem{}
+		gSem.wg.Add(1)
+		i := i
+		go func(gSem *GlobalSem, tSem *TaskSem) {
+			fmt.Printf("running go routine T %d \n", i)
+			defer gSem.wg.Done()
+			// каждая задача запускается в несколько потоков
+			// если у задачи есть ресурсы для запуска и глобально есть свободные потоки, то запускаем
+			for tSem.running < gSem.maxThPerT && gSem.maxTh > gSem.maxThRunning {
+				atomic.AddInt32(&tSem.running, 1)
+				atomic.AddInt32(&gSem.maxThRunning, 1)
+				fmt.Printf("Start: local count %d, global count %d, task %d \n", tSem.running, gSem.maxThRunning, i)
+				gSem.wg.Add(1)
+				go func(gSem *GlobalSem, tSem *TaskSem) {
+					defer gSem.wg.Done()
+					defer atomic.AddInt32(&gSem.maxThRunning, -1)
+					defer atomic.AddInt32(&tSem.running, -1)
+					time.Sleep(time.Duration(rand.Intn(5)+3) * time.Second)
+					fmt.Printf("End: local count %d, global count %d, task %d \n", tSem.running, gSem.maxThRunning, i)
+				}(gSem, tSem)
 			}
-			close(ch)
-		}(info.c)
-
-		//запускаем для каждой задачи n воркеров для обработки данных из канала задачи
-		wg.Add(info.wc)
-		for i := 0; i < info.wc; i++ {
-			i := i
-
-			//запуск воркера
-			go func(ch <-chan int) {
-				defer wg.Done()
-
-				//имитируем работу воркера
-				for {
-					ss := rand.Intn(5) + 1
-					time.Sleep(time.Duration(ss) * time.Second)
-					limit, ok := <-ch
-					if !ok {
-						return
-					}
-
-					url := "https://dummyjson.com/comments?limit=" + strconv.Itoa(limit)
-					r, err := http.Get(url)
-					if err != nil {
-						log.Fatalln(err)
-					}
-
-					resp := Response{}
-					err = json.Unmarshal(r, &resp)
-					if err != nil {
-						log.Fatal(err)
-					}
-
-					fmt.Printf("Task: %d; Worker: %d; Response len items: %d \n", t+1, i+1, len(*resp.Comments))
-				}
-
-			}(info.c)
-		}
+		}(&gSem, &tSem)
 	}
 
-	wg.Wait()
-
+	gSem.wg.Wait()
 }

@@ -24,11 +24,14 @@ func NewSemAtomic(max int32) *SemAtomic {
 }
 
 func (s *SemAtomic) Acquire() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+
+	// Я правильно понимаю, что нам тут мьютекс не нужен по сути.
+	// Мы его используем только для корректной работы sync.Cond?
+	s.cond.L.Lock()
+	defer s.cond.L.Unlock()
 
 	for s.FreeRsr == 0 {
-		s.cond.Wait()
+		s.cond.Wait() //зависает, но мьютекс освобождается
 	}
 
 	atomic.AddInt32(&s.FreeRsr, -1)

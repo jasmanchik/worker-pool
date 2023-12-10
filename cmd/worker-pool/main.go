@@ -3,24 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
-	"math/rand"
 	"sync"
-	"sync/atomic"
 	"time"
+	"worker-pool/lib/counters/semaphore"
 )
 
-type Semaphore interface {
-}
-
-type GlobalSem struct {
-	maxTh        int32
-	maxThPerT    int32
-	maxThRunning int32
-	wg           sync.WaitGroup
-}
-
-type TaskSem struct {
-	running int32
+type TaskLimiter struct {
+	counter int32
 }
 
 func main() {
@@ -30,37 +19,36 @@ func main() {
 	flag.IntVar(&M, "M", 4, "max threads per task")
 	flag.Parse()
 
-	gSem := GlobalSem{
-		int32(N),
-		int32(M),
-		0,
-		sync.WaitGroup{},
-	}
+	var wg sync.WaitGroup
+	//sem := semaphore.NewSemCh(int32(N))
+	sem := semaphore.NewSemAtomic(int32(N))
+
+	start := time.Now()
 
 	for i := 0; i < T; i++ { //запускаем T задач
-		tSem := TaskSem{}
-		gSem.wg.Add(1)
 		i := i
-		go func(gSem *GlobalSem, tSem *TaskSem) {
-			fmt.Printf("running go routine T %d \n", i)
-			defer gSem.wg.Done()
-			// каждая задача запускается в несколько потоков
-			// если у задачи есть ресурсы для запуска и глобально есть свободные потоки, то запускаем
-			for tSem.running < gSem.maxThPerT && gSem.maxTh > gSem.maxThRunning {
-				atomic.AddInt32(&tSem.running, 1)
-				atomic.AddInt32(&gSem.maxThRunning, 1)
-				fmt.Printf("Start: local count %d, global count %d, task %d \n", tSem.running, gSem.maxThRunning, i)
-				gSem.wg.Add(1)
-				go func(gSem *GlobalSem, tSem *TaskSem) {
-					defer gSem.wg.Done()
-					defer atomic.AddInt32(&gSem.maxThRunning, -1)
-					defer atomic.AddInt32(&tSem.running, -1)
-					time.Sleep(time.Duration(rand.Intn(5)+3) * time.Second)
-					fmt.Printf("End: local count %d, global count %d, task %d \n", tSem.running, gSem.maxThRunning, i)
-				}(gSem, tSem)
-			}
-		}(&gSem, &tSem)
+		for j := 0; j < 100; j++ {
+			wg.Add(1)
+			j := j
+			go func() {
+
+				fmt.Printf("Пытаюсь захватить поток на %d итерации %d задачи, свободных потоков %d \n", j, i, sem.GetFreeRsr())
+				sem.Acquire()
+				fmt.Printf("Захватил поток на %d итерации %d задачи, свободных потоков %d \n", j, i, sem.GetFreeRsr())
+
+				time.Sleep(500 * time.Millisecond)
+
+				sem.Release()
+
+				wg.Done()
+			}()
+		}
+
 	}
 
-	gSem.wg.Wait()
+	wg.Wait()
+
+	finalTime := time.Since(start).Seconds()
+
+	fmt.Printf("Прошло времени %f", finalTime)
 }

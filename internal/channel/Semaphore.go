@@ -4,7 +4,7 @@ type Semaphore struct {
 	weight chan struct{}
 }
 
-func NewSemaphore(maxWeight *int32) *Semaphore {
+func NewSemaphore(maxWeight *int64) *Semaphore {
 	sem := &Semaphore{
 		weight: make(chan struct{}, *maxWeight),
 	}

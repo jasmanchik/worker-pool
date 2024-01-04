@@ -6,7 +6,7 @@ import (
 )
 
 type Semaphore struct {
-	weight *int32
+	weight *int64
 	cond   *sync.Cond
 }
 
@@ -18,18 +18,18 @@ func (s *Semaphore) Acquire() {
 		s.cond.Wait() //зависает, но мьютекс освобождается
 	}
 
-	atomic.AddInt32(s.weight, -1)
+	atomic.AddInt64(s.weight, -1)
 }
 
 func (s *Semaphore) Release() {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
 
-	atomic.AddInt32(s.weight, 1)
+	atomic.AddInt64(s.weight, 1)
 	s.cond.Broadcast()
 }
 
-func NewSemaphore(max *int32) *Semaphore {
+func NewSemaphore(max *int64) *Semaphore {
 	sem := &Semaphore{
 		weight: max,
 		cond:   sync.NewCond(&sync.Mutex{}),

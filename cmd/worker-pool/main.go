@@ -1,11 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"golang.org/x/sync/semaphore"
 	"sync"
 	"time"
-	"worker-pool/internal/channel"
 )
 
 type Semaphore interface {
@@ -21,12 +22,10 @@ func main() {
 	flag.Parse()
 
 	var wg sync.WaitGroup
-	m := int32(M)
-	n := int32(N)
 
-	globalSem := channel.NewSemaphore(&n)
+	globalSem := semaphore.NewWeighted(int64(M))
 	for i := 0; i < T; i++ {
-		taskSem := channel.NewSemaphore(&m)
+		taskSem := semaphore.NewWeighted(int64(N))
 
 		for j := 0; j < 100; j++ {
 			j := j
@@ -35,10 +34,18 @@ func main() {
 			go func() {
 				defer wg.Done()
 
-				globalSem.Acquire()
-				defer globalSem.Release()
-				taskSem.Acquire()
-				defer taskSem.Release()
+				err := globalSem.Acquire(context.Background(), 1)
+				if err != nil {
+					fmt.Errorf("cant't acquire semaphore: %v", err)
+					return
+				}
+				defer globalSem.Release(1)
+				err = taskSem.Acquire(context.Background(), 1)
+				if err != nil {
+					fmt.Errorf("cant't acquire semaphore: %v", err)
+					return
+				}
+				defer taskSem.Release(1)
 
 				time.Sleep(100 * time.Millisecond)
 				fmt.Printf("task %d, thread %d\n", i, j)

@@ -2,10 +2,16 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"sync"
 	"time"
-	"worker-pool/internal/semaphore"
+	"worker-pool/internal/channel"
 )
+
+type Semaphore interface {
+	Acquire()
+	Release()
+}
 
 func main() {
 	var T, N, M int
@@ -15,32 +21,29 @@ func main() {
 	flag.Parse()
 
 	var wg sync.WaitGroup
+	m := int32(M)
+	n := int32(N)
 
-	//Для реализации через атомики
-	gMaxTh := int32(N)
-
-	//для реализации через каналы
-	//gMaxTh := make(chan struct{}, N)
-	//for i := 0; i < N; i++ {
-	//	gMaxTh <- struct{}{}
-	//}
-
+	globalSem := channel.NewSemaphore(&n)
 	for i := 0; i < T; i++ {
-		sem := semaphore.NewAtomicSemaphore(&gMaxTh, int32(M))
-		//sem := semaphore.NewChannelSemaphore(gMaxTh, int32(M))
+		taskSem := channel.NewSemaphore(&m)
 
 		for j := 0; j < 100; j++ {
+			j := j
+			i := i
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 
-				sem.Acquire()
-				defer sem.Release()
+				globalSem.Acquire()
+				defer globalSem.Release()
+				taskSem.Acquire()
+				defer taskSem.Release()
 
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond)
+				fmt.Printf("task %d, thread %d\n", i, j)
 			}()
 		}
-
 	}
 
 	wg.Wait()

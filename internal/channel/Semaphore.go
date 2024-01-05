@@ -1,5 +1,7 @@
 package channel
 
+import "context"
+
 type Semaphore struct {
 	weight chan struct{}
 }
@@ -16,8 +18,16 @@ func NewSemaphore(maxWeight *int64) *Semaphore {
 	return sem
 }
 
-func (s *Semaphore) Acquire() {
-	<-s.weight
+func (s *Semaphore) Acquire(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-s.weight:
+			return nil
+		default:
+		}
+	}
 }
 
 func (s *Semaphore) Release() {

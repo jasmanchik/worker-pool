@@ -1,6 +1,7 @@
 package atomic
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 )
@@ -10,15 +11,27 @@ type Semaphore struct {
 	cond   *sync.Cond
 }
 
-func (s *Semaphore) Acquire() {
+func (s *Semaphore) Acquire(ctx context.Context) error {
 	s.cond.L.Lock()
 	defer s.cond.L.Unlock()
 
-	for *s.weight == 0 {
-		s.cond.Wait() //зависает, но мьютекс освобождается
+	for atomic.LoadInt64(s.weight) == 0 {
+		waitCh := make(chan struct{})
+		go func() {
+			s.cond.Wait()
+			close(waitCh)
+		}()
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-waitCh:
+		}
 	}
 
 	atomic.AddInt64(s.weight, -1)
+
+	return nil
 }
 
 func (s *Semaphore) Release() {
@@ -26,7 +39,11 @@ func (s *Semaphore) Release() {
 	defer s.cond.L.Unlock()
 
 	atomic.AddInt64(s.weight, 1)
-	s.cond.Broadcast()
+	s.cond.Signal()
+}
+
+func (s *Semaphore) Weight() int64 {
+	return atomic.LoadInt64(s.weight)
 }
 
 func NewSemaphore(max *int64) *Semaphore {

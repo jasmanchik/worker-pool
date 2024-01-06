@@ -12,12 +12,12 @@ type Semaphore struct {
 }
 
 func (s *Semaphore) Acquire(ctx context.Context) error {
-	s.cond.L.Lock()
-	defer s.cond.L.Unlock()
 
 	for atomic.LoadInt64(s.weight) == 0 {
 		waitCh := make(chan struct{})
 		go func() {
+			s.cond.L.Lock()
+			defer s.cond.L.Unlock()
 			s.cond.Wait()
 			close(waitCh)
 		}()

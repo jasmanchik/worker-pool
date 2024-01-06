@@ -99,7 +99,7 @@ func BenchmarkAtomicSemaphore(b *testing.B) {
 					defer wg.Done()
 
 					for {
-						ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+						ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
 						if err := globalSem.Acquire(ctx); err != nil {
 							cancel()
 							continue
